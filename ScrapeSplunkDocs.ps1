@@ -6,6 +6,8 @@
 
 $docrevlevel = '6.1beta'
 
+$StartDate=(GET-DATE)
+
 $scriptpath = split-path $SCRIPT:MyInvocation.MyCommand.Path -parent
 
 $catalogfile = $scriptpath + '\' + 'catalog.csv'
@@ -37,7 +39,7 @@ foreach ($link in $page.links) {
 
             $filename = ($link.innerText).Trim() + '.pdf'
             $downloadfile = $downloadfolder + '\' + $filename
-            write-host ('downloading ' + $downloadfile)
+            write-host ('downloading ' + $filename)
 
             $client = new-object System.Net.WebClient 
             $client.DownloadFile($url,$downloadfile) 
@@ -60,7 +62,7 @@ foreach ($folder in $folders) {
 foreach ($file in $files) {
     foreach ($item in $catalog) {
         if ($item.Document + '.pdf'-eq $file.Name) {
-            write-host ('Copying ' + $file.name + ' to ' + $item.Folder + ' folder.')
+            write-host ('copying ' + $file.name + ' to ' + $item.Folder + ' folder.')
             Copy-Item $file.FullName -Destination ($downloadfolder + '\' + $item.Folder + '\' + $file.Name)
         }
     }
@@ -74,7 +76,11 @@ if ((Test-Path ($scriptpath + "\downloads.zip")) -eq $true) {
 Add-Type -Assembly "System.IO.Compression.FileSystem"
 [System.IO.Compression.ZipFile]::CreateFromDirectory($downloadfolder, $scriptpath + "\downloads.zip")
 
-write-host 'cleaning up'
 Remove-Item $downloadfolder -Force -Recurse
 
-write-host 'operation complete!'
+$EndDate=(GET-DATE)
+
+$timespan = NEW-TIMESPAN –Start $StartDate –End $EndDate
+$elapsed_seconds = [math]::round($timespan.TotalSeconds, 2)
+
+write-host ('operation completed in ' + $elapsed_seconds + ' seconds!')
