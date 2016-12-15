@@ -58,7 +58,7 @@ foreach ($folder in $folders) {
 }
 
 foreach ($file in $files) {
-    foreach ($item in $schema) {
+    foreach ($item in $catalog) {
         if ($item.Document + '.pdf'-eq $file.Name) {
             write-host ('Copying ' + $file.name + ' to ' + $item.Folder + ' folder.')
             Copy-Item $file.FullName -Destination ($downloadfolder + '\' + $item.Folder + '\' + $file.Name)
@@ -68,6 +68,9 @@ foreach ($file in $files) {
 }
 
 write-host ('compressing documents within ' + $scriptpath + "\downloads.zip")
+if ((Test-Path ($scriptpath + "\downloads.zip")) -eq $true) {
+    Remove-Item ($scriptpath + "\downloads.zip") -Force
+}
 Add-Type -Assembly "System.IO.Compression.FileSystem"
 [System.IO.Compression.ZipFile]::CreateFromDirectory($downloadfolder, $scriptpath + "\downloads.zip")
 
