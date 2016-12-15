@@ -1,0 +1,37 @@
+Document,Folder
+Admin Manual,Administer
+Getting Data In,Administer
+Knowledge Manager Manual,Administer
+Monitoring Splunk Enterprise,Administer
+REST API Reference Manual,Administer
+Securing Splunk Enterprise,Administer
+Splunk Analytics for Hadoop,Administer
+Troubleshooting Manual,Administer
+Capacity Planning Manual,Deploy
+Distributed Deployment Manual,Deploy
+Distributed Search,Deploy
+Forwarding Data,Deploy
+Managing Indexers and Clusters of Indexers,Deploy
+Monitoring Splunk Enterprise,Deploy
+Updating Splunk Enterprise Instances,Deploy
+Developing Views and Apps for Splunk Web,Develop
+Module System Reference,Develop
+Module System User Manual,Develop
+REST API Reference Manual,Develop
+REST API Tutorials,Develop
+REST API User Manual,Develop
+Data Model and Pivot Tutorial,Get Started
+Getting Data In,Get Started
+Installation Manual,Get Started
+Release Notes,Get Started
+Search Tutorial,Get Started
+Splunk Enterprise Overview,Get Started
+Splunk Enterprise Scenarios,Get Started
+Translated Documentation,Get Started
+Alerting Manual,Search and Report
+Dashboards and Visualizations,Search and Report
+Knowledge Manager Manual,Search and Report
+Pivot Manual,Search and Report
+Reporting Manual,Search and Report
+Search Manual,Search and Report
+Search Reference,Search and Report
