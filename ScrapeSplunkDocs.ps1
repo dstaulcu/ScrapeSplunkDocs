@@ -1,4 +1,4 @@
-﻿$VerbosePreference = "SilentlyContinue"
+$VerbosePreference = "SilentlyContinue"
 $DebugPreference = "SilentlyContinue"
 
 $StartDate=(GET-DATE)
@@ -110,8 +110,7 @@ $containerUrl = "http://docs.splunk.com/Documentation/Splunk/$($selecteditem)"
 Write-Debug "Downloading main page of document container: $($containerUrl)"
 $containerPage = Invoke-WebRequest -Uri $containerUrl
 
-# search version container for instances of document page links
-
+# search document container for instances of document page links
 foreach ($link in $containerPage.links) {
     if ($link.href -like '*/Documentation/Splunk/*/*') {
 
@@ -160,6 +159,10 @@ if ((Test-Path ($scriptpath + "\downloads.zip")) -eq $true) {
 }
 Add-Type -Assembly "System.IO.Compression.FileSystem"
 [System.IO.Compression.ZipFile]::CreateFromDirectory($downloadfolder, $scriptpath + "\downloads.zip")
+
+$newzip = $scriptpath + "\downloads_v$($selecteditem).zip"
+if (Test-Path -Path $newzip) { Remove-Item $newzip -Force }
+Rename-Item -Path ($scriptpath + "\downloads.zip") -NewName ($scriptpath + "\downloads_v$($selecteditem).zip")
 
 Remove-Item $downloadfolder -Force -Recurse
 
