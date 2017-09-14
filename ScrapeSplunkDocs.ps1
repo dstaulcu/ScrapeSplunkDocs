@@ -1,8 +1,12 @@
+<# 
+To Do:
+ - loop through all versions of docs subsequent to selectedversion
+ - for each version, download ONLY the manual type which corresponds to release notes    
+#>
+
 $VerbosePreference = "SilentlyContinue"
 $DebugPreference = "SilentlyContinue"
-
 $StartDate=(GET-DATE)
-
 
 function Get-SplunkDoc-Versions {
     # scrape the splunk enterprise document main page
@@ -110,15 +114,15 @@ $containerUrl = "http://docs.splunk.com/Documentation/Splunk/$($selecteditem)"
 Write-Debug "Downloading main page of document container: $($containerUrl)"
 $containerPage = Invoke-WebRequest -Uri $containerUrl
 
-# search document container for instances of document page links
+# for each manual download link, download file associated with url.
 foreach ($link in $containerPage.links) {
     if ($link.href -like '*/Documentation/Splunk/*/*') {
 
         $docname = $link.outerText.trim()
-        $docname = "$($docname).pdf"
+        $docname = "$($docname)_v$($selecteditem).pdf"
         $downloadfile = $downloadfolder + '\' + $docname
 
-        write-host "Downloading $($docname) for version $($selecteditem)."
+        write-host "Downloading $($docname)."
         
         $docUrl = "http://docs.splunk.com$($link.href)"
         $docPage = Invoke-WebRequest -Uri $docUrl
@@ -131,10 +135,49 @@ foreach ($link in $containerPage.links) {
     }
 }
 
+# get all available versions after the selected version into an array
+$afterselect = $false
+$laterversions = @()
+foreach ($version in $VersionContainer) {
+    $version = $version.split(",")[0]
+    if ($version -eq $selecteditem) {
+        $afterselect = $true
+        continue
+    }
+    if ($afterselect -eq $true) {
+        $laterversions += $version
+    }
+}
 
+
+foreach ($laterversion in $laterversions) {
+
+    # download the main page of the selected document container
+    $containerUrl = "http://docs.splunk.com/Documentation/Splunk/$($laterversion)"
+    Write-Debug "Downloading main page of document container: $($containerUrl)"
+    $containerPage = Invoke-WebRequest -Uri $containerUrl
+
+    # for each manual download link, download file associated with url.
+    $RelNotesItem = $containerPage.Links | Where-Object {$_.href -like "*/Documentation/Splunk/*/ReleaseNotes*"}
+    $docname = $RelNotesItem.outerText.trim()
+    $docname = "$($docname)_v$($laterversion).pdf"
+    $downloadfile = $downloadfolder + '\' + $docname
+
+    write-host "Downloading $($docname)."
+        
+    $docUrl = "http://docs.splunk.com$($RelNotesItem.href)"
+    $docPage = Invoke-WebRequest -Uri $docUrl
+    $docManualPdfUrl = ($docPage.Links | Where-Object {$_.class -eq "download"} | Where-Object {$_.outerText -match "Download manual as PDF"}).href
+    $docManualPdfUrl = "http://docs.splunk.com$($docManualPdfUrl)"
+    $docManualPdfUrl = $docManualPdfUrl -replace "&amp;","&"     
+    $client.DownloadFile($docManualPdfUrl,$downloadfile) 
+}
+
+
+# get a list of files we downloaded
 $files = get-childitem -path $downloadfolder
 
-# check to see if folders exist. if not create them
+# create category folders into which we can copy manuals
 $folders = $catalog | Select-Object -Unique -Property Folder
 foreach ($folder in $folders) {
     $folderpath = $downloadfolder + '\' + $folder.Folder
@@ -143,9 +186,10 @@ foreach ($folder in $folders) {
     }
 }
 
+# for each file, copy into appropriate folders then delete from temp location
 foreach ($file in $files) {
     foreach ($item in $catalog) {
-        if ($item.Document + '.pdf'-eq $file.Name) {
+        if ($file.name -match $item.Document) {
             write-host ('copying ' + $file.name + ' to ' + $item.Folder + ' folder.')
             Copy-Item $file.FullName -Destination ($downloadfolder + '\' + $item.Folder + '\' + $file.Name)
         }
@@ -153,6 +197,7 @@ foreach ($file in $files) {
     Remove-Item $file.FullName
 }
 
+# compress the data store of manuals
 write-host ('compressing documents within ' + $scriptpath + "\downloads.zip")
 if ((Test-Path ($scriptpath + "\downloads.zip")) -eq $true) {
     Remove-Item ($scriptpath + "\downloads.zip") -Force
@@ -160,15 +205,11 @@ if ((Test-Path ($scriptpath + "\downloads.zip")) -eq $true) {
 Add-Type -Assembly "System.IO.Compression.FileSystem"
 [System.IO.Compression.ZipFile]::CreateFromDirectory($downloadfolder, $scriptpath + "\downloads.zip")
 
-$newzip = $scriptpath + "\downloads_v$($selecteditem).zip"
-if (Test-Path -Path $newzip) { Remove-Item $newzip -Force }
-Rename-Item -Path ($scriptpath + "\downloads.zip") -NewName ($scriptpath + "\downloads_v$($selecteditem).zip")
-
+# remove the temporary downlad folder
 Remove-Item $downloadfolder -Force -Recurse
 
+# summarize the transaction
 $EndDate=(GET-DATE)
-
 $timespan = NEW-TIMESPAN –Start $StartDate –End $EndDate
 $elapsed_seconds = [math]::round($timespan.TotalSeconds, 2)
-
 write-host ('operation completed in ' + $elapsed_seconds + ' seconds!')
