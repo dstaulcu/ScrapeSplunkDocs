@@ -1,9 +1,3 @@
-<# 
-To Do:
- - loop through all versions of docs subsequent to selectedversion
- - for each version, download ONLY the manual type which corresponds to release notes    
-#>
-
 $VerbosePreference = "SilentlyContinue"
 $DebugPreference = "SilentlyContinue"
 $StartDate=(GET-DATE)
@@ -198,12 +192,13 @@ foreach ($file in $files) {
 }
 
 # compress the data store of manuals
-write-host ('compressing documents within ' + $scriptpath + "\downloads.zip")
-if ((Test-Path ($scriptpath + "\downloads.zip")) -eq $true) {
-    Remove-Item ($scriptpath + "\downloads.zip") -Force
-}
+$zipfile = "$($scriptpath)\downloads.zip"
+write-host "compressing documents within $($zipfile)"
+if ((Test-Path $zipfile) -eq $true) { Remove-Item $zipfile -Force }
 Add-Type -Assembly "System.IO.Compression.FileSystem"
-[System.IO.Compression.ZipFile]::CreateFromDirectory($downloadfolder, $scriptpath + "\downloads.zip")
+[System.IO.Compression.ZipFile]::CreateFromDirectory($downloadfolder, $zipfile)
+$zipfileversion = $zipfile -replace ".zip","v$($selecteditem).zip"
+Get-Item $zipfile | Rename-Item -NewName $zipfileversion
 
 # remove the temporary downlad folder
 Remove-Item $downloadfolder -Force -Recurse
