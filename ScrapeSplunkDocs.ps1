@@ -1,5 +1,7 @@
 $VerbosePreference = "SilentlyContinue"
 $DebugPreference = "SilentlyContinue"
+$ReleaseNotesOnly = $False
+
 $StartDate=(GET-DATE)
 
 function Get-SplunkDoc-Versions {
@@ -114,15 +116,20 @@ foreach ($link in $containerPage.links) {
 
         $docname = $link.outerText.trim()
         $docname = "$($docname)_v$($selecteditem).pdf"
-        $downloadfile = $downloadfolder + '\' + $docname
 
+        if (($ReleaseNotesOnly=$True) -and ($docname -notlike "*ReleaseNotes*")) {
+            continue                        
+        } 
+
+        $downloadfile = $downloadfolder + '\' + $docname
         write-host "Downloading $($docname)."
-        
+       
         $docUrl = "http://docs.splunk.com$($link.href)"
         $docPage = Invoke-WebRequest -Uri $docUrl
         $docManualPdfUrl = ($docPage.Links | Where-Object {$_.class -eq "download"} | Where-Object {$_.outerText -match "Download manual as PDF"}).href
         $docManualPdfUrl = "http://docs.splunk.com$($docManualPdfUrl)"
         $docManualPdfUrl = $docManualPdfUrl -replace "&amp;","&"
+
       
         $client.DownloadFile($docManualPdfUrl,$downloadfile) 
 
@@ -205,6 +212,6 @@ Remove-Item $downloadfolder -Force -Recurse
 
 # summarize the transaction
 $EndDate=(GET-DATE)
-$timespan = NEW-TIMESPAN –Start $StartDate –End $EndDate
+$timespan = NEW-TIMESPAN -Start $StartDate -End $EndDate
 $elapsed_seconds = [math]::round($timespan.TotalSeconds, 2)
 write-host ('operation completed in ' + $elapsed_seconds + ' seconds!')
