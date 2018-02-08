@@ -117,9 +117,9 @@ foreach ($link in $containerPage.links) {
         $docname = $link.outerText.trim()
         $docname = "$($docname)_v$($selecteditem).pdf"
 
-        if (($ReleaseNotesOnly=$True) -and ($docname -notlike "*ReleaseNotes*")) {
-            continue                        
-        } 
+#        if (($ReleaseNotesOnly=$True) -and ($docname -notlike "*ReleaseNotes*")) {
+#            continue                        
+#        } 
 
         $downloadfile = $downloadfolder + '\' + $docname
         write-host "Downloading $($docname)."
