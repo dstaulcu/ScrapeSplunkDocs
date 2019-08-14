@@ -13,16 +13,11 @@ function Get-SplunkDoc-Versions {
     $versioncontainer = ($page.AllElements | Where-Object {$_.class -match "(version-select-container)"}).innerhtml
 
     # cleanup option value list so that we have a comma delimmted list of internal/external version names
-    $versioncontainer = $versioncontainer -split "`<option value`=" 
-    $versioncontainer = $versioncontainer -match "/option"
-    $versioncontainer = $versioncontainer -replace "</option>",""
-    $versioncontainer = $versioncontainer -replace "(\s+</select>)",""
-    $versioncontainer = $versioncontainer -replace "`"",""
-    $versioncontainer = $versioncontainer -replace ">",","
-    $versioncontainer = $versioncontainer -replace " selected=",""
-    $versioncontainer = $versioncontainer -replace "(\n)",""
-
-    return $versioncontainer
+    $Matches = ([regex]"value=([0-9\.]+)").match($versioncontainer)
+    $Values = ($versioncontainer | select-string -pattern '(?smi)value=([0-9\.]+)' -AllMatches).Matches.Value
+    $Values = $Values -replace "value=",""
+  
+    return $Values
 }
 
 function Get-SplunkDoc-UserSelection {
@@ -99,10 +94,9 @@ New-Item -Path $scriptpath -Name "downloads" -ItemType "directory" | Out-Null
 $VersionContainer = Get-SplunkDoc-Versions
 
 # prompt the user to select which document container they want to download from
-$listitems = $VersionContainer -replace "(.*),",""
+$listitems = $VersionContainer
 $selecteditem = Get-SplunkDoc-UserSelection -formtitle "SplunkDocs Downloader" -prompt "Select version to download" -listitems $listitems
 if (!($selecteditem)) { write-verbose "User cancelled action; exiting." ; Exit }
-$selecteditem = ($VersionContainer -like "*$selecteditem*").split(",")[0]
 write-host "User selected document container version $($selecteditem)."
 
 # download the main page of the selected document container
@@ -117,9 +111,9 @@ foreach ($link in $containerPage.links) {
         $docname = $link.outerText.trim()
         $docname = "$($docname)_v$($selecteditem).pdf"
 
-#        if (($ReleaseNotesOnly=$True) -and ($docname -notlike "*ReleaseNotes*")) {
-#            continue                        
-#        } 
+        if (($ReleaseNotesOnly -eq $True) -and ($docname -notlike "*ReleaseNotes*")) {
+            continue                        
+        } 
 
         $downloadfile = $downloadfolder + '\' + $docname
         write-host "Downloading $($docname)."
