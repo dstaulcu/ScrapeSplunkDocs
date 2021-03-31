@@ -1,12 +1,27 @@
+<#
+.SYNOPSIS
+	Download PDF files for Splunk documentation
+.PARAMETER latest
+	Download latest if true.  Prompt for version if false.
+.EXAMPLE
+     .\<scriptname>.ps1 -latest $true
+.EXAMPLE
+     .\<scriptname>.ps1 -latest $false
+#>
+
+param([boolean]$latest=$true)
+
 $VerbosePreference = "SilentlyContinue"
 $DebugPreference = "SilentlyContinue"
+$ProgressPreference = 'SilentlyContinue' # Subsequent calls do not display UI.
 $ReleaseNotesOnly = $False
 
 $StartDate=(GET-DATE)
 
 function Get-SplunkDoc-Versions {
+    param($productValue="splunk")
     # scrape the splunk enterprise document main page
-    $url = 'http://docs.splunk.com/Documentation/Splunk'
+    $url = "http://docs.splunk.com/Documentation/$($productValue)"
     $page = Invoke-WebRequest -Uri $url
 
     # get content of the section which contains options for doc versions
@@ -18,6 +33,30 @@ function Get-SplunkDoc-Versions {
     $Values = $Values -replace "value=",""
   
     return $Values
+}
+
+function Get-SplunkDoc-ProductNames {
+    # scrape the splunk enterprise document main page
+    $url = 'http://docs.splunk.com/Documentation/Splunk'
+    $page = Invoke-WebRequest -Uri $url
+
+    $versionSelectContainer = $page.AllElements | Where-Object {$_.class -match "(version-select-container)"}
+    $versionSelectContainer.innerHTML -match "(<SELECT id=product-select>\s+.*<\/SELECT>?)"
+    $productSelect = $matches[1]
+    $m = $productSelect | select-string -pattern "<OPTION (selected )?value=([^>]+)>([^<]+)<\/OPTION>" -AllMatches
+
+    # transform the array of links to a pipe delimited string
+    $Records = @()
+    for ($i = 0; $i -le $m.matches.Count -1; $i++)
+    {   
+        $Record = @{
+            OptionValue = $m.Matches.Captures[$i].groups[2].Value     
+            OptionName = $m.Matches.Captures[$i].groups[3].Value    
+        }
+        $Records += New-Object -TypeName PSObject -Property $Record     
+    }
+
+    return $Records
 }
 
 function Get-SplunkDoc-UserSelection {
@@ -79,8 +118,6 @@ function Get-SplunkDoc-UserSelection {
 
 $client = new-object System.Net.WebClient
 $scriptpath = split-path $SCRIPT:MyInvocation.MyCommand.Path -parent
-$catalogfile = $scriptpath + '\' + 'catalog.csv'
-$catalog = Import-Csv -Path $catalogfile
 $downloadfolder = $scriptpath + '\' + 'downloads'
 
 # if the download folder exists, remove it
@@ -90,122 +127,132 @@ if ((Test-Path $downloadfolder -PathType Container) -eq $true) {
 # create the download folder anew
 New-Item -Path $scriptpath -Name "downloads" -ItemType "directory" | Out-Null
 
-# scrape the default splunk enterprise documents site for versions of document containers
-$VersionContainer = Get-SplunkDoc-Versions
 
-# prompt the user to select which document container they want to download from
-$listitems = $VersionContainer
-$selecteditem = Get-SplunkDoc-UserSelection -formtitle "SplunkDocs Downloader" -prompt "Select version to download" -listitems $listitems
-if (!($selecteditem)) { write-verbose "User cancelled action; exiting." ; Exit }
-write-host "User selected document container version $($selecteditem)."
+$ProductNames = Get-SplunkDoc-ProductNames
 
-# download the main page of the selected document container
-$containerUrl = "http://docs.splunk.com/Documentation/Splunk/$($selecteditem)"
-Write-Debug "Downloading main page of document container: $($containerUrl)"
-$containerPage = Invoke-WebRequest -Uri $containerUrl
+$SelectedProducts = $ProductNames | Select OptionName, OptionValue | ?{$_.OptionName -ne $null} | Out-GridView -PassThru
 
-# for each manual download link, download file associated with url.
-foreach ($link in $containerPage.links) {
-    if ($link.href -like '*/Documentation/Splunk/*/*') {
-
-        $docname = $link.outerText.trim()
-        $docname = "$($docname)_v$($selecteditem).pdf"
-
-        if (($ReleaseNotesOnly -eq $True) -and ($docname -notlike "*ReleaseNotes*")) {
-            continue                        
-        } 
-
-        $downloadfile = $downloadfolder + '\' + $docname
-        write-host "Downloading $($docname)."
-       
-        $docUrl = "http://docs.splunk.com$($link.href)"
-        $docPage = Invoke-WebRequest -Uri $docUrl
-        $docManualPdfUrl = ($docPage.Links | Where-Object {$_.class -eq "download"} | Where-Object {$_.outerText -match "Download manual as PDF"}).href
-        $docManualPdfUrl = "http://docs.splunk.com$($docManualPdfUrl)"
-        $docManualPdfUrl = $docManualPdfUrl -replace "&amp;","&"
-
-      
-        $client.DownloadFile($docManualPdfUrl,$downloadfile) 
-
-    }
+if (-not($SelectedProducts)) {
+    write-host "User cancelled product selection. Exiting."
+    exit
 }
 
-# get all available versions after the selected version into an array
-$afterselect = $false
-$laterversions = @()
-foreach ($version in $VersionContainer) {
-    $version = $version.split(",")[0]
-    if ($version -eq $selecteditem) {
-        $afterselect = $true
-        continue
-    }
-    if ($afterselect -eq $true) {
-        $laterversions += $version
-    }
-}
+foreach ($SelectedProduct in $SelectedProducts) {
 
+    write-host "Working on doc download for product $($SelectedProduct.optionName)."
 
-foreach ($laterversion in $laterversions) {
+    $downloadFolderProduct = "$($downloadfolder)\$($SelectedProduct.OptionValue)"
+
+    write-host "downloadFolderProduct: $($downloadFolderProduct)"
+
+    # if the download subfolder exists, remove it
+    if ((Test-Path $downloadFolderProduct -PathType Container) -eq $true) {
+        Remove-Item -Path $downloadFolderProduct -Force -Recurse
+    }
+    # create the product download folder anew
+    New-Item -Path $downloadFolderProduct -ItemType Directory | Out-Null
+
+    # scrape the default splunk enterprise documents site for versions of document containers
+    $VersionContainer = Get-SplunkDoc-Versions -productValue $SelectedProduct.OptionValue
+
+    # prompt the user to select which document container they want to download from
+    $listitems = $VersionContainer
+    if ($latest -eq $false) {
+        $selecteditem = Get-SplunkDoc-UserSelection -formtitle "SplunkDocs Downloader" -prompt "Select version to download" -listitems $listitems
+        if (!($selecteditem)) { write-verbose "User cancelled action; exiting." ; Exit }
+    } else {
+        $SelectedItem = $listitems[-1]
+    }
+    write-host "-User selected document container version $($selecteditem)."
 
     # download the main page of the selected document container
-    $containerUrl = "http://docs.splunk.com/Documentation/Splunk/$($laterversion)"
+    $containerUrl = "http://docs.splunk.com/Documentation/$($SelectedProduct.OptionValue)/$($selecteditem)"
     Write-Debug "Downloading main page of document container: $($containerUrl)"
     $containerPage = Invoke-WebRequest -Uri $containerUrl
 
     # for each manual download link, download file associated with url.
-    $RelNotesItem = $containerPage.Links | Where-Object {$_.href -like "*/Documentation/Splunk/*/ReleaseNotes*"}
-    $docname = $RelNotesItem.outerText.trim()
-    $docname = "$($docname)_v$($laterversion).pdf"
-    $downloadfile = $downloadfolder + '\' + $docname
+    foreach ($link in $containerPage.links) {
+        if ($link.href -like "*/Documentation/$($SelectedProduct.OptionValue)/*/*") {
 
-    write-host "Downloading $($docname)."
-        
-    $docUrl = "http://docs.splunk.com$($RelNotesItem.href)"
-    $docPage = Invoke-WebRequest -Uri $docUrl
-    $docManualPdfUrl = ($docPage.Links | Where-Object {$_.class -eq "download"} | Where-Object {$_.outerText -match "Download manual as PDF"}).href
-    $docManualPdfUrl = "http://docs.splunk.com$($docManualPdfUrl)"
-    $docManualPdfUrl = $docManualPdfUrl -replace "&amp;","&"     
-    $client.DownloadFile($docManualPdfUrl,$downloadfile) 
-}
+            $docname = $link.outerText.trim()
+            $docname = "$($docname)_v$($selecteditem).pdf"
+
+            if (($ReleaseNotesOnly -eq $True) -and ($docname -notlike "*ReleaseNotes*")) {
+                continue                        
+            } 
+
+            $downloadfile = "$($downloadFolderProduct)\$($docname)"
+            write-host "-Downloading $($docname)."
+       
+            $docUrl = "http://docs.splunk.com$($link.href)"
+            $docPage = Invoke-WebRequest -Uri $docUrl
+            $docManualPdfUrl = ($docPage.Links | Where-Object {$_.class -eq "download"} | Where-Object {$_.outerText -match "Download manual as PDF"}).href
+            $docManualPdfUrl = "http://docs.splunk.com$($docManualPdfUrl)"
+            $docManualPdfUrl = $docManualPdfUrl -replace "&amp;","&"
+
+            # build download url from base + appid + app version
+            $Down_URL = $docManualPdfUrl
+
+            # build the file path to download the item to
+            $filepath = $downloadfile
+
+            try {
+                $WebRequest = Invoke-WebRequest -Uri $Down_URL -OutFile $filepath
+            } catch { 
+                write-host "-Download url:  `"$($down_url)`"" -ForegroundColor Yellow
+                write-host "-Exception message:  `"$($Error[0].Exception.Message)`"" -ForegroundColor Yellow
+                continue
+            }      
 
 
-# get a list of files we downloaded
-$files = get-childitem -path $downloadfolder
-
-# create category folders into which we can copy manuals
-$folders = $catalog | Select-Object -Unique -Property Folder
-foreach ($folder in $folders) {
-    $folderpath = $downloadfolder + '\' + $folder.Folder
-    if ((Test-Path $folderpath -PathType Container) -eq $false) {
-        New-Item -Path $downloadfolder -Name $folder.Folder -ItemType "directory" | Out-Null
-    }
-}
-
-# for each file, copy into appropriate folders then delete from temp location
-foreach ($file in $files) {
-    foreach ($item in $catalog) {
-        if ($file.name -match $item.Document) {
-            write-host ('copying ' + $file.name + ' to ' + $item.Folder + ' folder.')
-            Copy-Item $file.FullName -Destination ($downloadfolder + '\' + $item.Folder + '\' + $file.Name)
         }
     }
-    Remove-Item $file.FullName
+
+    # get all available versions after the selected version into an array
+    $afterselect = $false
+    $laterversions = @()
+    foreach ($version in $VersionContainer) {
+        $version = $version.split(",")[0]
+        if ($version -eq $selecteditem) {
+            $afterselect = $true
+            continue
+        }
+        if ($afterselect -eq $true) {
+            $laterversions += $version
+        }
+    }
+
+
+    foreach ($laterversion in $laterversions) {
+
+        # download the main page of the selected document container
+        $containerUrl = "http://docs.splunk.com/Documentation/$($SelectedProduct.OptionValue)/$($laterversion)"
+        Write-Debug "Downloading main page of document container: $($containerUrl)"
+        $containerPage = Invoke-WebRequest -Uri $containerUrl
+
+        # for each manual download link, download file associated with url.
+        $RelNotesItem = $containerPage.Links | Where-Object {$_.href -like "*/Documentation/$($SelectedProduct.OptionValue)/*/ReleaseNotes*"}
+        $docname = $RelNotesItem.outerText.trim()
+        $docname = "$($docname)_v$($laterversion).pdf"
+        $downloadfile = $downloadFolderProduct + '\' + $docname
+
+        write-host "-Downloading $($docname)."
+        
+        $docUrl = "http://docs.splunk.com$($RelNotesItem.href)"
+        $docPage = Invoke-WebRequest -Uri $docUrl
+        $docManualPdfUrl = ($docPage.Links | Where-Object {$_.class -eq "download"} | Where-Object {$_.outerText -match "Download manual as PDF"}).href
+        $docManualPdfUrl = "http://docs.splunk.com$($docManualPdfUrl)"
+        $docManualPdfUrl = $docManualPdfUrl -replace "&amp;","&"     
+        $client.DownloadFile($docManualPdfUrl,$downloadfile) 
+    }
 }
 
-# compress the data store of manuals
-$zipfile = "$($scriptpath)\downloads.zip"
-write-host "compressing documents within $($zipfile)"
-if ((Test-Path $zipfile) -eq $true) { Remove-Item $zipfile -Force }
-Add-Type -Assembly "System.IO.Compression.FileSystem"
-[System.IO.Compression.ZipFile]::CreateFromDirectory($downloadfolder, $zipfile)
-$zipfileversion = $zipfile -replace ".zip","v$($selecteditem).zip"
-Get-Item $zipfile | Rename-Item -NewName $zipfileversion
 
-# remove the temporary downlad folder
-Remove-Item $downloadfolder -Force -Recurse
+
+
 
 # summarize the transaction
 $EndDate=(GET-DATE)
 $timespan = NEW-TIMESPAN -Start $StartDate -End $EndDate
 $elapsed_seconds = [math]::round($timespan.TotalSeconds, 2)
-write-host ('operation completed in ' + $elapsed_seconds + ' seconds!')
+write-host "operation completed in $($elapsed_seconds) seconds. PDF files written to $($downloadfolder)."
