@@ -15,6 +15,7 @@ $VerbosePreference = "SilentlyContinue"
 $DebugPreference = "SilentlyContinue"
 $ProgressPreference = 'SilentlyContinue' # Subsequent calls do not display UI.
 $ReleaseNotesOnly = $False
+$runningJobLimit = 5   # website appears to penalize with 403 for ~10 minutes if you exceed some number of connections in a certain duration of time.
 
 $StartDate=(GET-DATE)
 
@@ -130,12 +131,18 @@ New-Item -Path $scriptpath -Name "downloads" -ItemType "directory" | Out-Null
 
 $ProductNames = Get-SplunkDoc-ProductNames
 
-$SelectedProducts = $ProductNames | Select OptionName, OptionValue | ?{$_.OptionName -ne $null} | Out-GridView -PassThru
+$ProductNames = $ProductNames | ?{$_.OptionName -ne $null }
+$ProductNames = $ProductNames | ?{$_.OptionName -notmatch "\((Legcy|EOL|depricated)\)" }
+
+$SelectedProducts = $ProductNames | Select OptionName, OptionValue | ?{$_.OptionName -notmatch "(\(Legacy\)|\(EOL\)|\(deprecated\)| SDK)"} | Out-GridView -PassThru
 
 if (-not($SelectedProducts)) {
     write-host "User cancelled product selection. Exiting."
     exit
 }
+
+
+$jobs = @()
 
 foreach ($SelectedProduct in $SelectedProducts) {
 
@@ -196,60 +203,29 @@ foreach ($SelectedProduct in $SelectedProducts) {
             # build the file path to download the item to
             $filepath = $downloadfile
 
-            try {
-                $WebRequest = Invoke-WebRequest -Uri $Down_URL -OutFile $filepath
-            } catch { 
-                write-host "-Download url:  `"$($down_url)`"" -ForegroundColor Yellow
-                write-host "-Exception message:  `"$($Error[0].Exception.Message)`"" -ForegroundColor Yellow
-                continue
-            }      
+            $bSleeping = $false
+            do
+            {
+                $runningJobCount = ($jobs | Get-Job | ?{$_.state -eq "Running"}).count
+                if ($runningJobCount -gt $runningJobLimit) {
+                    if ($bSleeping -eq $false) {
+                        write-host "-running job count is $($runningJobCount). Sleeping until count is less than $($runningJobLimit)."
+                    }
+                    $bSleeping = $true
+                    Start-Sleep -Seconds 1    
+                }
+            }
+            until ($runningJobCount -lt $runningJobLimit)
 
+            $jobs += Start-Job -ScriptBlock { $WebRequest = Invoke-WebRequest -Uri $using:Down_URL -OutFile $using:filepath }
 
         }
-    }
-
-    # get all available versions after the selected version into an array
-    $afterselect = $false
-    $laterversions = @()
-    foreach ($version in $VersionContainer) {
-        $version = $version.split(",")[0]
-        if ($version -eq $selecteditem) {
-            $afterselect = $true
-            continue
-        }
-        if ($afterselect -eq $true) {
-            $laterversions += $version
-        }
-    }
-
-
-    foreach ($laterversion in $laterversions) {
-
-        # download the main page of the selected document container
-        $containerUrl = "http://docs.splunk.com/Documentation/$($SelectedProduct.OptionValue)/$($laterversion)"
-        Write-Debug "Downloading main page of document container: $($containerUrl)"
-        $containerPage = Invoke-WebRequest -Uri $containerUrl
-
-        # for each manual download link, download file associated with url.
-        $RelNotesItem = $containerPage.Links | Where-Object {$_.href -like "*/Documentation/$($SelectedProduct.OptionValue)/*/ReleaseNotes*"}
-        $docname = $RelNotesItem.outerText.trim()
-        $docname = "$($docname)_v$($laterversion).pdf"
-        $downloadfile = $downloadFolderProduct + '\' + $docname
-
-        write-host "-Downloading $($docname)."
-        
-        $docUrl = "http://docs.splunk.com$($RelNotesItem.href)"
-        $docPage = Invoke-WebRequest -Uri $docUrl
-        $docManualPdfUrl = ($docPage.Links | Where-Object {$_.class -eq "download"} | Where-Object {$_.outerText -match "Download manual as PDF"}).href
-        $docManualPdfUrl = "http://docs.splunk.com$($docManualPdfUrl)"
-        $docManualPdfUrl = $docManualPdfUrl -replace "&amp;","&"     
-        $client.DownloadFile($docManualPdfUrl,$downloadfile) 
     }
 }
 
-
-
-
+<#
+$jobs | remove-job -force
+#>
 
 # summarize the transaction
 $EndDate=(GET-DATE)
