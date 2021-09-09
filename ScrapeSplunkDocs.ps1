@@ -118,7 +118,7 @@ function Get-SplunkDoc-UserSelection {
 }
 
 $client = new-object System.Net.WebClient
-$scriptpath = split-path $SCRIPT:MyInvocation.MyCommand.Path -parent
+$scriptpath = $env:temp
 $downloadfolder = $scriptpath + '\' + 'downloads'
 
 # if the download folder exists, remove it
